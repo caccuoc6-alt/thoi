@@ -1,0 +1,214 @@
+/**
+ * Simple auth backend (JSON file store).
+ *
+ * Endpoints:
+ * - POST /register  { email, username, password }
+ * - POST /login     { identity, password }  // identity = email OR username
+ *
+ * Security:
+ * - bcrypt password hashing
+ * - JWT issuance on successful login/register
+ * - Input validation + duplicate checks
+ */
+
+const path = require("path");
+const fs = require("fs/promises");
+const crypto = require("crypto");
+
+const express = require("express");
+const cors = require("cors");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+
+const app = express();
+
+// ---- Config ----
+const PORT = Number(process.env.PORT || 8080);
+const JWT_SECRET = process.env.JWT_SECRET || "dev_only_change_me";
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "2h";
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
+
+// If you're serving the frontend from a different origin, set this:
+//   set ALLOWED_ORIGIN=http://127.0.0.1:5500 (or your Live Server URL)
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
+
+const DB_PATH = path.join(__dirname, "users.json");
+
+app.use(express.json({ limit: "64kb" }));
+app.use(
+  cors({
+    origin: ALLOWED_ORIGIN,
+  })
+);
+
+// ---- Helpers ----
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+const USERNAME_RE = /^[a-zA-Z0-9._-]{3,24}$/;
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function normalizeUsername(username) {
+  return String(username || "").trim().toLowerCase();
+}
+
+function safeMessage(msg) {
+  // Avoid leaking details in auth errors.
+  return msg || "Invalid credentials.";
+}
+
+async function readDb() {
+  try {
+    const raw = await fs.readFile(DB_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.users)) {
+      return { users: [] };
+    }
+    return parsed;
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { users: [] };
+    throw e;
+  }
+}
+
+async function writeDb(db) {
+  const tmp = DB_PATH + ".tmp";
+  await fs.writeFile(tmp, JSON.stringify(db, null, 2), "utf8");
+  await fs.rename(tmp, DB_PATH);
+}
+
+function issueToken(user) {
+  return jwt.sign(
+    {
+      sub: user.id,
+      email: user.email,
+      username: user.username,
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    createdAt: user.createdAt,
+  };
+}
+
+// ---- Routes ----
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.post("/register", async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const username = normalizeUsername(req.body?.username);
+    const password = String(req.body?.password || "");
+
+    const fieldErrors = {};
+    if (!email) fieldErrors.email = "Email is required.";
+    else if (!EMAIL_RE.test(email)) fieldErrors.email = "Email is not valid.";
+
+    if (!username) fieldErrors.username = "Username is required.";
+    else if (!USERNAME_RE.test(username)) {
+      fieldErrors.username = "Username must be 3-24 chars (letters, numbers, . _ -).";
+    }
+
+    if (!password.trim()) fieldErrors.password = "Password is required.";
+    else if (password.length < 6) fieldErrors.password = "Password must be at least 6 characters.";
+
+    if (Object.keys(fieldErrors).length) {
+      return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors });
+    }
+
+    const db = await readDb();
+    const emailTaken = db.users.some((u) => u.email === email);
+    const usernameTaken = db.users.some((u) => u.username === username);
+
+    if (emailTaken || usernameTaken) {
+      return res.status(409).json({
+        ok: false,
+        message: "User already exists.",
+        fieldErrors: {
+          ...(emailTaken ? { email: "Email is already registered." } : {}),
+          ...(usernameTaken ? { username: "Username is already taken." } : {}),
+        },
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const user = {
+      id: crypto.randomUUID(),
+      email,
+      username,
+      passwordHash,
+      createdAt: new Date().toISOString(),
+    };
+
+    db.users.push(user);
+    await writeDb(db);
+
+    const token = issueToken(user);
+    return res.status(201).json({
+      ok: true,
+      message: "Registered successfully.",
+      token,
+      user: publicUser(user),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
+});
+
+app.post("/login", async (req, res) => {
+  try {
+    const identityRaw = String(req.body?.identity || "").trim();
+    const password = String(req.body?.password || "");
+
+    const fieldErrors = {};
+    if (!identityRaw) fieldErrors.identity = "Email/username is required.";
+    if (!password.trim()) fieldErrors.password = "Password is required.";
+    if (Object.keys(fieldErrors).length) {
+      return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors });
+    }
+
+    const db = await readDb();
+
+    const identityEmail = normalizeEmail(identityRaw);
+    const identityUsername = normalizeUsername(identityRaw);
+
+    const user =
+      identityRaw.includes("@")
+        ? db.users.find((u) => u.email === identityEmail)
+        : db.users.find((u) => u.username === identityUsername);
+
+    // Safe incorrect-password handling:
+    // - same message whether user doesn't exist or password mismatch
+    // - still do a bcrypt compare against a dummy hash to reduce timing leakage
+    const dummyHash =
+      "$2b$12$CwTycUXWue0Thq9StjUM0uJ8i1o4lYtH7lZxwqE4tWl6PqJQm9k7G"; // bcrypt("dummy", 12)
+
+    const hashToCompare = user ? user.passwordHash : dummyHash;
+    const match = await bcrypt.compare(password, hashToCompare);
+
+    if (!user || !match) {
+      return res.status(401).json({ ok: false, message: safeMessage("Invalid email/username or password.") });
+    }
+
+    const token = issueToken(user);
+    return res.json({ ok: true, message: "Login successful.", token, user: publicUser(user) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
+});
+
+app.listen(PORT, () => {
+  // eslint-disable-next-line no-console
+  console.log(`Auth server running on http://localhost:${PORT}`);
+});
+
