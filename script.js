@@ -109,6 +109,47 @@ function validate() {
   return ok;
 }
 
+function validateIdentityOnly() {
+  const identity = identityInput.value.trim();
+  let ok = true;
+
+  if (!identity) {
+    setError(identityInput, identityErrorEl, "Please enter your email or username.");
+    ok = false;
+  } else if (identity.includes("@")) {
+    if (!EMAIL_RE.test(identity)) {
+      setError(identityInput, identityErrorEl, "Please enter a valid email address.");
+      ok = false;
+    } else {
+      setError(identityInput, identityErrorEl, "");
+    }
+  } else if (identity.length < 3) {
+    setError(identityInput, identityErrorEl, "Username should be at least 3 characters.");
+    ok = false;
+  } else {
+    setError(identityInput, identityErrorEl, "");
+  }
+
+  return ok;
+}
+
+function validatePasswordOnly() {
+  const password = passwordInput.value;
+  let ok = true;
+
+  if (!password.trim()) {
+    setError(passwordInput, passwordErrorEl, "Please enter your password.");
+    ok = false;
+  } else if (password.length < 6) {
+    setError(passwordInput, passwordErrorEl, "Password should be at least 6 characters.");
+    ok = false;
+  } else {
+    setError(passwordInput, passwordErrorEl, "");
+  }
+
+  return ok;
+}
+
 function setFormMessage(type, message) {
   if (!formMessageEl) return;
   formMessageEl.textContent = message;
@@ -209,17 +250,82 @@ findUserBtn?.addEventListener("click", findAccount);
 form.addEventListener("submit", (e) => {
   e.preventDefault();
   clearErrors();
-
-  if (!validate()) {
-    // Move focus to the first invalid input for a smoother UX.
-    const firstInvalid = form.querySelector(".is-invalid");
-    if (firstInvalid) firstInvalid.focus();
-    return;
-  }
+  setFindStatus("idle", "");
+  hideFindCard();
 
   // ---- Connect to backend ----
   // If your backend runs on a different port, change this value.
   const API_BASE = "http://localhost:8080";
+
+  // Step 1: if password is empty, do "user found" check first.
+  if (!passwordInput.value.trim()) {
+    if (!validateIdentityOnly()) {
+      identityInput.focus();
+      return;
+    }
+
+    const btn = form.querySelector('button[type="submit"]');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+    setFindStatus("loading", "Checking account…");
+
+    fetch(`${API_BASE}/login/identify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity: identityInput.value.trim() }),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        return { ok: res.ok, status: res.status, data };
+      })
+      .then(({ ok, data }) => {
+        if (!ok) {
+          if (data?.fieldErrors?.identity) setError(identityInput, identityErrorEl, data.fieldErrors.identity);
+          setFindStatus("error", data?.message || "No account found.");
+          setFormMessage("error", data?.message || "No account found with this email.");
+          return;
+        }
+
+        // If backend is in secure mode, exists will be null; keep message generic.
+        if (data?.exists === false) {
+          setFindStatus("error", data?.message || "No account found.");
+          setFormMessage("error", "No account found with this email/username. Try again or sign up.");
+          return;
+        }
+
+        setFindStatus("success", data?.message || "User found, please enter your password.");
+        setFormMessage("success", data?.message || "User found, please enter your password.");
+
+        // Optional preview (non-sensitive)
+        if (data?.preview) {
+          showFindCard({
+            username: data.preview.username,
+            email: data.preview.email,
+          });
+        }
+
+        // Proceed to password step
+        passwordInput.focus();
+      })
+      .catch(() => {
+        setFindStatus("error", "Couldn’t reach the server. Is it running?");
+        setFormMessage("error", "Couldn’t reach the server. Is it running?");
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = original;
+      });
+
+    return;
+  }
+
+  // Step 2: password is present → attempt login
+  if (!validateIdentityOnly() || !validatePasswordOnly()) {
+    const firstInvalid = form.querySelector(".is-invalid");
+    if (firstInvalid) firstInvalid.focus();
+    return;
+  }
 
   const btn = form.querySelector('button[type="submit"]');
   const original = btn.textContent;

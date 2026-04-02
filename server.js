@@ -32,6 +32,10 @@ const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
 //   set ALLOWED_ORIGIN=http://127.0.0.1:5500 (or your Live Server URL)
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
 
+// "demo" reveals whether a user exists (for your UX requirement).
+// "secure" avoids confirming existence (recommended for real sites).
+const USER_FOUND_MODE = process.env.USER_FOUND_MODE || "demo"; // demo | secure
+
 const DB_PATH = path.join(__dirname, "users.json");
 
 app.use(express.json({ limit: "64kb" }));
@@ -56,6 +60,40 @@ function normalizeUsername(username) {
 function safeMessage(msg) {
   // Avoid leaking details in auth errors.
   return msg || "Invalid credentials.";
+}
+
+function getClientIp(req) {
+  // Basic IP extraction (good enough for local/dev).
+  return (
+    String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    req.socket?.remoteAddress ||
+    "unknown"
+  );
+}
+
+function createRateLimiter({ windowMs, max, keyPrefix }) {
+  const hits = new Map(); // key -> { count, resetAt }
+
+  return function rateLimit(req, res, next) {
+    const now = Date.now();
+    const ip = getClientIp(req);
+    const key = `${keyPrefix}:${ip}`;
+
+    const cur = hits.get(key);
+    if (!cur || now > cur.resetAt) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    cur.count += 1;
+    if (cur.count > max) {
+      const retryAfterSec = Math.ceil((cur.resetAt - now) / 1000);
+      res.setHeader("Retry-After", String(retryAfterSec));
+      return res.status(429).json({ ok: false, message: "Too many attempts. Please try again soon." });
+    }
+
+    return next();
+  };
 }
 
 async function readDb() {
@@ -99,6 +137,14 @@ function publicUser(user) {
   };
 }
 
+function userPreview(user) {
+  // Non-sensitive preview for the "user found" UI.
+  return {
+    username: user.username,
+    email: user.email,
+  };
+}
+
 function requireAuth(req, res, next) {
   const header = String(req.headers.authorization || "");
   const m = header.match(/^Bearer\s+(.+)$/i);
@@ -116,6 +162,65 @@ function requireAuth(req, res, next) {
 // ---- Routes ----
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+const identifyLimiter = createRateLimiter({ windowMs: 60_000, max: 20, keyPrefix: "identify" });
+const loginLimiter = createRateLimiter({ windowMs: 60_000, max: 20, keyPrefix: "login" });
+
+// Step 1: identify user (for "user found" UX)
+// POST /login/identify { identity }
+app.post("/login/identify", identifyLimiter, async (req, res) => {
+  try {
+    const identityRaw = String(req.body?.identity || "").trim();
+    if (!identityRaw) {
+      return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors: { identity: "Email/username is required." } });
+    }
+
+    // Basic identity format validation
+    if (identityRaw.includes("@")) {
+      const email = normalizeEmail(identityRaw);
+      if (!EMAIL_RE.test(email)) {
+        return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors: { identity: "Email is not valid." } });
+      }
+    } else if (identityRaw.length < 3) {
+      return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors: { identity: "Username should be at least 3 characters." } });
+    }
+
+    const db = await readDb();
+    const identityEmail = normalizeEmail(identityRaw);
+    const identityUsername = normalizeUsername(identityRaw);
+
+    const user =
+      identityRaw.includes("@")
+        ? db.users.find((u) => u.email === identityEmail)
+        : db.users.find((u) => u.username === identityUsername);
+
+    // Logging (demo)
+    // eslint-disable-next-line no-console
+    console.warn(`[identify] ip=${getClientIp(req)} identity=${identityRaw} found=${Boolean(user)}`);
+
+    if (USER_FOUND_MODE === "secure") {
+      // Avoid confirming existence.
+      return res.json({
+        ok: true,
+        exists: null,
+        message: "If an account exists, please enter your password to continue.",
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({ ok: false, exists: false, message: "No account found with this email/username." });
+    }
+
+    return res.json({
+      ok: true,
+      exists: true,
+      message: "User found, please enter your password.",
+      preview: userPreview(user),
+    });
+  } catch {
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
 });
 
 app.post("/register", async (req, res) => {
@@ -179,7 +284,7 @@ app.post("/register", async (req, res) => {
   }
 });
 
-app.post("/login", async (req, res) => {
+app.post("/login", loginLimiter, async (req, res) => {
   try {
     const identityRaw = String(req.body?.identity || "").trim();
     const password = String(req.body?.password || "");
@@ -211,10 +316,14 @@ app.post("/login", async (req, res) => {
     const match = await bcrypt.compare(password, hashToCompare);
 
     if (!user || !match) {
+      // eslint-disable-next-line no-console
+      console.warn(`[login] ip=${getClientIp(req)} identity=${identityRaw} success=false`);
       return res.status(401).json({ ok: false, message: safeMessage("Invalid email/username or password.") });
     }
 
     const token = issueToken(user);
+    // eslint-disable-next-line no-console
+    console.warn(`[login] ip=${getClientIp(req)} identity=${identityRaw} success=true`);
     return res.json({ ok: true, message: "Login successful.", token, user: publicUser(user) });
   } catch (err) {
     return res.status(500).json({ ok: false, message: "Server error." });
