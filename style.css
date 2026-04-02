@@ -407,6 +407,8 @@ html[data-page="leaving"]{
 
 .userCard{
   display:none;
+  position:relative;
+  z-index:3;
   grid-template-columns: auto 1fr auto;
   gap:12px;
   align-items:center;
@@ -417,7 +419,7 @@ html[data-page="leaving"]{
   box-shadow: 0 16px 34px rgba(30,35,70,0.10);
 }
 .userCard.is-visible{
-  display:grid;
+  display:grid !important;
   animation: popIn 220ms ease-out both;
 }
 @keyframes popIn{

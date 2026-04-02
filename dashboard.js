@@ -64,6 +64,13 @@ function showUserCard(user) {
   userEmail.textContent = user.email;
   userFoundCard.setAttribute("aria-hidden", "false");
   userFoundCard.classList.add("is-visible");
+
+  // Make sure the user notices the result.
+  try {
+    userFoundCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch {
+    // ignore
+  }
 }
 
 async function searchUser() {
