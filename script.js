@@ -12,6 +12,12 @@ const togglePasswordBtn = document.getElementById("togglePassword");
 const identityErrorEl = document.getElementById("identityError");
 const passwordErrorEl = document.getElementById("passwordError");
 const formMessageEl = document.getElementById("formMessage");
+const findUserBtn = document.getElementById("findUserBtn");
+const findUserStatus = document.getElementById("findUserStatus");
+const findUserCard = document.getElementById("findUserCard");
+const findUserAvatar = document.getElementById("findUserAvatar");
+const findUserName = document.getElementById("findUserName");
+const findUserEmail = document.getElementById("findUserEmail");
 
 // A simple, practical email format check (not exhaustive).
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
@@ -29,6 +35,40 @@ function clearErrors() {
     formMessageEl.textContent = "";
     formMessageEl.classList.remove("is-error", "is-success");
     formMessageEl.style.display = "none";
+  }
+}
+
+function setFindStatus(kind, text) {
+  if (!findUserStatus) return;
+  findUserStatus.classList.remove("shake");
+
+  if (kind === "loading") {
+    findUserStatus.innerHTML = `<span class="spinner" aria-hidden="true"></span><span>${text}</span>`;
+    return;
+  }
+
+  findUserStatus.textContent = text || "";
+  if (kind === "error") findUserStatus.classList.add("shake");
+}
+
+function hideFindCard() {
+  if (!findUserCard) return;
+  findUserCard.classList.remove("is-visible");
+  findUserCard.setAttribute("aria-hidden", "true");
+}
+
+function showFindCard(user) {
+  if (!findUserCard) return;
+  const displayName = user.username || "User";
+  findUserAvatar.textContent = String(displayName).slice(0, 1).toUpperCase();
+  findUserName.textContent = user.username;
+  findUserEmail.textContent = user.email;
+  findUserCard.setAttribute("aria-hidden", "false");
+  findUserCard.classList.add("is-visible");
+  try {
+    findUserCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch {
+    // ignore
   }
 }
 
@@ -123,6 +163,48 @@ togglePasswordBtn.addEventListener("click", () => {
   setPasswordVisibility(visible);
   passwordInput.focus();
 });
+
+async function findAccount() {
+  // Same base as login
+  const API_BASE = "http://localhost:8080";
+  const q = identityInput.value.trim();
+
+  hideFindCard();
+
+  if (!q) {
+    setFindStatus("error", "Type an email or username above first.");
+    identityInput.focus();
+    return;
+  }
+
+  // If it looks like an email, validate format before calling backend
+  if (q.includes("@") && !EMAIL_RE.test(q)) {
+    setFindStatus("error", "That email format doesn’t look right.");
+    return;
+  }
+
+  setFindStatus("loading", "Searching…");
+  findUserBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/users/lookup?q=${encodeURIComponent(q)}`);
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      setFindStatus("error", data?.message || "No user found.");
+      return;
+    }
+
+    setFindStatus("success", "User found!");
+    showFindCard(data.user);
+  } catch {
+    setFindStatus("error", "Server unreachable. Start the backend first.");
+  } finally {
+    findUserBtn.disabled = false;
+  }
+}
+
+findUserBtn?.addEventListener("click", findAccount);
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();

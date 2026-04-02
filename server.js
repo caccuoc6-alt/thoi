@@ -249,6 +249,32 @@ app.get("/users/search", requireAuth, async (req, res) => {
   }
 });
 
+// Public lookup (no JWT) for the login page "Find account" UX.
+// GET /users/lookup?q=emailOrUsername
+// Note: In a real production app, you would usually avoid confirming if a user exists.
+app.get("/users/lookup", async (req, res) => {
+  try {
+    const qRaw = String(req.query?.q || "").trim();
+    if (!qRaw) {
+      return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors: { q: "Query is required." } });
+    }
+
+    const db = await readDb();
+    const qEmail = normalizeEmail(qRaw);
+    const qUsername = normalizeUsername(qRaw);
+
+    const found =
+      qRaw.includes("@")
+        ? db.users.find((u) => u.email === qEmail)
+        : db.users.find((u) => u.username === qUsername);
+
+    if (!found) return res.status(404).json({ ok: false, message: "No user found." });
+    return res.json({ ok: true, user: publicUser(found) });
+  } catch {
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
+});
+
 app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Auth server running on http://localhost:${PORT}`);

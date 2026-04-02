@@ -35,6 +35,31 @@
             <p id="identityError" class="error" role="alert" aria-live="polite"></p>
           </div>
 
+          <div class="search">
+            <div class="row" style="justify-content:flex-start">
+              <button id="findUserBtn" class="btn btn--small" type="button">
+                <span>Find account</span>
+                <span class="btn__sparkle" aria-hidden="true">✦</span>
+              </button>
+              <p class="hint" style="margin:0">Checks if an account exists for what you typed above.</p>
+            </div>
+            <div id="findUserStatus" class="searchStatus" aria-live="polite"></div>
+          </div>
+
+          <section
+            id="findUserCard"
+            class="userCard"
+            aria-label="User found"
+            aria-hidden="true"
+          >
+            <div class="userCard__avatar" id="findUserAvatar" aria-hidden="true"></div>
+            <div class="userCard__info">
+              <div class="userCard__name" id="findUserName">—</div>
+              <div class="userCard__meta" id="findUserEmail">—</div>
+            </div>
+            <div class="userCard__badge" aria-hidden="true">User Found ✓</div>
+          </section>
+
           <div class="field">
             <label class="label" for="password">Password</label>
             <div class="control control--password">
