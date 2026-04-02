@@ -20,6 +20,43 @@
             Checking your session…
           </p>
 
+          <div class="search">
+            <div class="field">
+              <label class="label" for="userQuery">Search users</label>
+              <div class="control control--search">
+                <input
+                  id="userQuery"
+                  class="input"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Email or username…"
+                  aria-describedby="searchHint"
+                />
+                <button id="searchBtn" class="btn btn--small" type="button">
+                  <span>Search</span>
+                  <span class="btn__sparkle" aria-hidden="true">✦</span>
+                </button>
+              </div>
+              <p id="searchHint" class="hint">Try your email or username from registration.</p>
+            </div>
+
+            <div id="searchStatus" class="searchStatus" aria-live="polite"></div>
+          </div>
+
+          <section
+            id="userFoundCard"
+            class="userCard"
+            aria-label="User found"
+            aria-hidden="true"
+          >
+            <div class="userCard__avatar" id="userAvatar" aria-hidden="true"></div>
+            <div class="userCard__info">
+              <div class="userCard__name" id="userName">—</div>
+              <div class="userCard__meta" id="userEmail">—</div>
+            </div>
+            <div class="userCard__badge" aria-hidden="true">User Found ✓</div>
+          </section>
+
           <div class="field">
             <label class="label" for="tokenPreview">JWT (stored in localStorage)</label>
             <div class="control">
@@ -48,6 +85,7 @@
     </main>
 
     <script src="./dashboard.js"></script>
+    <script src="./transitions.js"></script>
   </body>
 </html>
 

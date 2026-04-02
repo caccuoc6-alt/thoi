@@ -32,6 +32,21 @@
     overflow-x:hidden;
   }
   
+/* Page transitions (fade-in/out) */
+html{
+  transition: opacity 180ms ease, transform 180ms ease;
+  opacity: 0;
+  transform: translateY(4px);
+}
+html[data-page="ready"]{
+  opacity: 1;
+  transform: translateY(0);
+}
+html[data-page="leaving"]{
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
   .page{
     min-height:100%;
     display:grid;
@@ -54,6 +69,14 @@
     z-index:2;
   }
   
+.card{
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+.card:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 22px 70px rgba(30, 35, 70, 0.16);
+}
+
   @keyframes floatIn{
     from{ transform: translateY(10px); opacity:0; }
     to{ transform: translateY(0); opacity:1; }
@@ -102,6 +125,27 @@
     align-items:center;
   }
   
+/* Underline slide for inputs (focus animation) */
+.control::after{
+  content:"";
+  position:absolute;
+  left:12px;
+  right:12px;
+  bottom:8px;
+  height:2px;
+  border-radius:999px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+  transform: scaleX(0);
+  transform-origin:left;
+  opacity:0;
+  transition: transform 180ms ease, opacity 180ms ease;
+  pointer-events:none;
+}
+.control:has(.input:focus)::after{
+  transform: scaleX(1);
+  opacity:0.55;
+}
+
   .input{
     width:100%;
     padding:12px 12px;
@@ -281,6 +325,8 @@
     justify-content:center;
     gap:10px;
     transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+  position:relative;
+  overflow:hidden;
   }
   .btn:hover{
     transform: translateY(-2px);
@@ -296,6 +342,131 @@
     opacity:0.9;
     transform: translateY(-0.5px);
   }
+
+.btn--small{
+  width:auto;
+  padding:10px 12px;
+  border-radius: 14px;
+  white-space:nowrap;
+}
+
+.socialBtn{
+  position:relative;
+  overflow:hidden;
+}
+
+/* Ripple micro-interaction */
+.ripple{
+  position:absolute;
+  border-radius:999px;
+  background: rgba(255,255,255,0.55);
+  transform: scale(0);
+  pointer-events:none;
+  animation: ripple 520ms ease-out forwards;
+  mix-blend-mode: soft-light;
+}
+@keyframes ripple{
+  to{
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.hint{
+  margin:0;
+  font-size:0.86rem;
+  color: rgba(90,95,122,0.82);
+}
+
+/* Dashboard search */
+.control--search{
+  gap:10px;
+  align-items:stretch;
+}
+.control--search .input{
+  flex:1;
+}
+
+.searchStatus{
+  min-height: 22px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color: rgba(90,95,122,0.9);
+  font-weight:700;
+}
+.spinner{
+  width:18px;
+  height:18px;
+  border-radius:999px;
+  border:2px solid rgba(124,92,255,0.18);
+  border-top-color: rgba(124,92,255,0.9);
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin{ to{ transform: rotate(360deg); } }
+
+.userCard{
+  display:none;
+  grid-template-columns: auto 1fr auto;
+  gap:12px;
+  align-items:center;
+  padding:14px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(124,92,255,0.18);
+  background: rgba(255,255,255,0.82);
+  box-shadow: 0 16px 34px rgba(30,35,70,0.10);
+}
+.userCard.is-visible{
+  display:grid;
+  animation: popIn 220ms ease-out both;
+}
+@keyframes popIn{
+  from{ opacity:0; transform: translateY(10px); }
+  to{ opacity:1; transform: translateY(0); }
+}
+
+.userCard__avatar{
+  width:44px;
+  height:44px;
+  border-radius: 16px;
+  display:grid;
+  place-items:center;
+  font-weight:900;
+  color:white;
+  background: linear-gradient(135deg, rgba(64,201,255,0.9), rgba(255,111,177,0.9));
+  box-shadow: 0 10px 22px rgba(64,201,255,0.18);
+}
+.userCard__name{
+  font-weight:900;
+  letter-spacing:-0.01em;
+}
+.userCard__meta{
+  color: rgba(90,95,122,0.92);
+  font-weight:700;
+  font-size:0.92rem;
+}
+.userCard__badge{
+  font-weight:900;
+  font-size:0.82rem;
+  padding:8px 10px;
+  border-radius: 999px;
+  background: rgba(43,154,102,0.10);
+  border: 1px solid rgba(43,154,102,0.22);
+  color: rgba(43,154,102,0.95);
+  white-space:nowrap;
+}
+
+/* Subtle "not found" shake */
+.shake{
+  animation: shake 360ms ease-in-out;
+}
+@keyframes shake{
+  0%,100%{ transform: translateX(0); }
+  20%{ transform: translateX(-6px); }
+  40%{ transform: translateX(6px); }
+  60%{ transform: translateX(-4px); }
+  80%{ transform: translateX(4px); }
+}
   
   .divider{
     display:flex;
@@ -429,5 +600,9 @@
     .dots{ display:none; }
     .blob--1{ left: -160px; top: -120px; }
     .blob--2{ left: auto; right: -170px; top: 55%; }
+  .control--search{ flex-direction:column; }
+  .btn--small{ width:100%; }
+  .userCard{ grid-template-columns: auto 1fr; }
+  .userCard__badge{ grid-column: 1 / -1; justify-self:start; }
   }
   

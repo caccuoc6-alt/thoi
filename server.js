@@ -99,6 +99,20 @@ function publicUser(user) {
   };
 }
 
+function requireAuth(req, res, next) {
+  const header = String(req.headers.authorization || "");
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  if (!m) return res.status(401).json({ ok: false, message: "Missing token." });
+
+  try {
+    const payload = jwt.verify(m[1], JWT_SECRET);
+    req.user = payload;
+    return next();
+  } catch {
+    return res.status(401).json({ ok: false, message: "Invalid token." });
+  }
+}
+
 // ---- Routes ----
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -203,6 +217,34 @@ app.post("/login", async (req, res) => {
     const token = issueToken(user);
     return res.json({ ok: true, message: "Login successful.", token, user: publicUser(user) });
   } catch (err) {
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
+});
+
+// Search users (JWT-protected)
+// GET /users/search?q=emailOrUsername
+app.get("/users/search", requireAuth, async (req, res) => {
+  try {
+    const qRaw = String(req.query?.q || "").trim();
+    if (!qRaw) {
+      return res.status(400).json({ ok: false, message: "Validation error.", fieldErrors: { q: "Query is required." } });
+    }
+
+    const db = await readDb();
+    const qEmail = normalizeEmail(qRaw);
+    const qUsername = normalizeUsername(qRaw);
+
+    const found =
+      qRaw.includes("@")
+        ? db.users.find((u) => u.email === qEmail)
+        : db.users.find((u) => u.username === qUsername);
+
+    if (!found) {
+      return res.status(404).json({ ok: false, message: "No user found." });
+    }
+
+    return res.json({ ok: true, user: publicUser(found) });
+  } catch {
     return res.status(500).json({ ok: false, message: "Server error." });
   }
 });
